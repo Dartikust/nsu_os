@@ -4,6 +4,9 @@ import datetime
 import os
 from pathlib import Path
 import re
+import pty
+import select
+import termios
 import subprocess
 import tempfile
 import time
@@ -37,6 +40,9 @@ check(b"Usage:" in err, "No arguments")
 for args in [("-x",), ("-U",), ("-i-p",), ("-i", "-", "-p"),
              ("-Uabc",), ("-U-1",), ("-U12abc",)]:
     run(1, args, ok=False)
+out, err = run(1, ("-i17389",), ok=False)
+check(b"Usage:" in err and b"UID:" not in out,
+      "Malformed option prints usage before executing anything")
 out, _ = run(1, ("-i", "-p", "-i"))
 check(out.startswith(b"UID:") and out.count(b"EUID:") == 2 and
       out.index(b"PID:") < out.rindex(b"UID:"), "Reverse repeated options")
@@ -74,6 +80,46 @@ for data, expected in [(b"one\ntwo\n.stop\nignored\n", b"one\ntwo\n"),
     out, _ = run(4, data=data)
     check(out.split(b"Saved lines:\n", 1)[1] == expected, "Linked list")
 
+controls = b"\x1b[A \x1b[2J \r\b\t\v\x7f\n"
+out, _ = run(4, data=controls + ".\n".encode())
+check(out.split(b"Saved lines:\n", 1)[1] ==
+      b"\\x1b[A \\x1b[2J \\x0d\\x08\\x09\\x0b\\x7f\n",
+      "Control sequences are stored as visible text")
+check(b"\x1b" not in out, "No active escape characters in output")
+russian = "строка ↑\n".encode()
+out, _ = run(4, data=russian + b".\n")
+check(out.split(b"Saved lines:\n", 1)[1] == russian,
+      "UTF-8 text is preserved")
+
+# Check the real terminal path too, with unsafe echo initially enabled.
+master, slave = pty.openpty()
+original = termios.tcgetattr(slave)
+original[3] &= ~termios.ECHOCTL
+termios.tcsetattr(slave, termios.TCSANOW, original)
+process = subprocess.Popen([str(ROOT / "z4")], stdin=slave, stdout=slave,
+                           stderr=slave, close_fds=True)
+terminal_output = b""
+try:
+    deadline = time.monotonic() + 3
+    while b"finishes input:" not in terminal_output:
+        ready, _, _ = select.select([master], [], [], max(0, deadline - time.monotonic()))
+        if not ready:
+            raise AssertionError("z4 terminal prompt did not appear")
+        terminal_output += os.read(master, 4096)
+    os.write(master, b"\x1b[A\n.\n")
+    process.wait(timeout=3)
+    while select.select([master], [], [], 0.1)[0]:
+        terminal_output += os.read(master, 4096)
+    check(process.returncode == 0 and b"\\x1b[A" in terminal_output and
+          b"\x1b" not in terminal_output, "Arrow key stays text during terminal input/output")
+    check(termios.tcgetattr(slave) == original, "Original terminal settings restored")
+finally:
+    if process.poll() is None:
+        process.kill()
+        process.wait()
+    os.close(master)
+    os.close(slave)
+
 with tempfile.TemporaryDirectory(prefix="os-lab-") as directory:
     folder = Path(directory)
     path = folder / "text.txt"
@@ -89,6 +135,14 @@ with tempfile.TemporaryDirectory(prefix="os-lab-") as directory:
             out, _ = run(number, (path,), requests)
             check(all(item in out for item in expected),
                   "z%d: line indexing %r" % (number, content))
+        path.write_bytes(b"first\nsecond\n")
+        for wrong in (b"abc", b"0abc", b"00", b"+0", b"-0", b"0 ",
+                      b" 0", b"0 1", b"", b"-1", b"1abc",
+                      b"0\x00junk", b"9" * 200 + b"0"):
+            out, _ = run(number, (path,), wrong + b"\n1\n0\n2\n")
+            check(out.count(b": first\n") == 1 and b": second\n" not in out and
+                  b"exactly 0 to quit." in out,
+                  "z%d: only an exact zero quits; invalid input %r" % (number, wrong))
         run(number, (folder / "missing",), ok=False)
 
     secret = folder / "data.txt"
@@ -124,19 +178,20 @@ with tempfile.TemporaryDirectory(prefix="os-lab-") as directory:
 
     processes = []
     for number in (6, 7):
-        processes.append(subprocess.Popen(
-            [str(ROOT / ("z%d" % number)), str(path)],
-            stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE))
-    time.sleep(3)
+        for first in (b"1\n", b"abc\n"):
+            process = subprocess.Popen(
+                [str(ROOT / ("z%d" % number)), str(path)],
+                stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+            process.stdin.write(first)
+            process.stdin.flush()
+            processes.append(process)
+    time.sleep(6)
     for process in processes:
-        process.stdin.write(b"1\n")
-        process.stdin.flush()
-    time.sleep(3)
-    for process in processes:
-        check(process.poll() is None, "Fresh alarm after a successful request")
-        output, errors = process.communicate(b"0\n", timeout=3)
+        check(process.poll() is None, "No timer after the first input, even if invalid")
+        output, errors = process.communicate(b"0x\n2\n0\n", timeout=3)
         check(process.returncode == 0 and not errors and
-              b"first\n" in output and b"Time is up" not in output,
-              "Timely number and zero exit")
+              b": \n" in output and b"Time is up" not in output and
+              output.count(b"5 seconds:") == 1,
+              "Subsequent requests behave like task 5 without a deadline")
 
 print("PASS: %d checks" % checks)

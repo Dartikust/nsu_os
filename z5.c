@@ -4,6 +4,8 @@
 #include <fcntl.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <errno.h>
+#include <string.h>
 
 struct line {
     off_t offset;
@@ -84,6 +86,46 @@ static int print_line(int fd, struct line line)
     return 0;
 }
 
+/* 1: positive number, 0: exactly "0", 2: invalid input, -1: EOF/error. */
+static int read_number(long *number)
+{
+    char input[64], byte, *end;
+    size_t used = 0;
+    int invalid = 0;
+    ssize_t received;
+
+    while ((received = read(STDIN_FILENO, &byte, 1)) > 0) {
+        if (byte == '\n')
+            break;
+        if (byte == '\0')
+            invalid = 1;
+        if (used < sizeof(input) - 1)
+            input[used++] = byte;
+        else
+            invalid = 1;
+    }
+    if (received == -1) {
+        perror("read");
+        return -1;
+    }
+    if (received == 0 && used == 0 && !invalid) {
+        fprintf(stderr, "Input closed before 0.\n");
+        return -1;
+    }
+    input[used] = '\0';
+    if (invalid)
+        return 2;
+    if (strcmp(input, "0") == 0)
+        return 0;
+    if (input[0] < '0' || input[0] > '9')
+        return 2;
+    errno = 0;
+    *number = strtol(input, &end, 10);
+    if (errno != 0 || *end != '\0' || *number <= 0)
+        return 2;
+    return 1;
+}
+
 int main(int argc, char **argv)
 {
     int fd, status = 0;
@@ -107,10 +149,17 @@ int main(int argc, char **argv)
     for (;;) {
         printf("Line number (0 to quit): ");
         fflush(stdout);
-        if (scanf("%ld", &number) != 1)
+        int result = read_number(&number);
+        if (result == -1) {
+            status = 1;
             break;
-        if (number == 0)
+        }
+        if (result == 0)
             break;
+        if (result == 2) {
+            puts("Enter a positive line number or exactly 0 to quit.");
+            continue;
+        }
         if (number < 1 || (size_t)number > count) {
             puts("No such line.");
             continue;

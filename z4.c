@@ -1,18 +1,52 @@
+#define _DEFAULT_SOURCE
+#define __EXTENSIONS__ 1
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <termios.h>
+#include <unistd.h>
 
 struct node {
     char *text;
     struct node *next;
 };
 
+static size_t escape_controls(char *text, const char *source)
+{
+    size_t length = 0;
+    while (*source != '\0') {
+        unsigned char byte = (unsigned char)*source++;
+        if ((byte < 32 && byte != '\n') || byte == 127)
+            length += (size_t)sprintf(text + length, "\\x%02x", (unsigned int)byte);
+        else
+            text[length++] = (char)byte;
+    }
+    text[length] = '\0';
+    return length;
+}
+
 int main(void)
 {
     struct node *head = NULL, *tail = NULL, *current;
     char buffer[4096];
+    char text[4 * sizeof(buffer)];
+    struct termios original, settings;
+    int terminal_changed = 0;
     int status = 0;
 
+    if (isatty(STDIN_FILENO)) {
+        if (tcgetattr(STDIN_FILENO, &original) == -1) {
+            perror("tcgetattr");
+            return 1;
+        }
+        settings = original;
+        settings.c_lflag |= ECHOCTL | IEXTEN;
+        if (tcsetattr(STDIN_FILENO, TCSANOW, &settings) == -1) {
+            perror("tcsetattr");
+            return 1;
+        }
+        terminal_changed = 1;
+    }
     puts("Enter lines; a dot at the beginning finishes input:");
     while (fgets(buffer, sizeof(buffer), stdin) != NULL) {
         size_t length;
@@ -24,6 +58,7 @@ int main(void)
             status = 1;
             break;
         }
+        length = escape_controls(text, buffer);
         current = malloc(sizeof(*current));
         if (current == NULL) {
             perror("malloc");
@@ -37,7 +72,7 @@ int main(void)
             status = 1;
             break;
         }
-        strcpy(current->text, buffer);
+        strcpy(current->text, text);
         current->next = NULL;
         if (head == NULL)
             head = current;
@@ -58,5 +93,7 @@ int main(void)
         free(head);
         head = current;
     }
+    if (terminal_changed)
+        tcsetattr(STDIN_FILENO, TCSANOW, &original);
     return status;
 }

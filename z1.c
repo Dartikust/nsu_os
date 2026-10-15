@@ -15,6 +15,12 @@ struct option {
 
 extern char **environ;
 
+static void usage(const char *program)
+{
+    fprintf(stderr, "Usage: %s -i -s -p -u -Ublocks "
+            "-c -Cbytes -d -v -Vname=value\n", program);
+}
+
 static int number(const char *text, long *value)
 {
     char *end;
@@ -124,13 +130,13 @@ int main(int argc, char **argv)
     int count = 0, opt, status = 0;
 
     if (argc == 1) {
-        fprintf(stderr, "Usage: %s -i -s -p -u -Ublocks "
-                "-c -Cbytes -d -v -Vname=value\n", argv[0]);
+        usage(argv[0]);
         return 0;
     }
     while ((opt = getopt(argc, argv, "ispuU:cC:dvV:")) != -1) {
         struct option *grown;
         if (opt == '?') {
+            usage(argv[0]);
             free(options);
             return 1;
         }
@@ -147,6 +153,7 @@ int main(int argc, char **argv)
     }
     if (optind != argc) {
         fprintf(stderr, "Unexpected argument: %s\n", argv[optind]);
+        usage(argv[0]);
         free(options);
         return 1;
     }
