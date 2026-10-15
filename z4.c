@@ -16,10 +16,12 @@ static size_t escape_controls(char *text, const char *source)
     size_t length = 0;
     while (*source != '\0') {
         unsigned char byte = (unsigned char)*source++;
-        if ((byte < 32 && byte != '\n') || byte == 127)
-            length += (size_t)sprintf(text + length, "\\x%02x", (unsigned int)byte);
-        else
+        if ((byte < 32 && byte != '\n') || byte == 127) {
+            text[length++] = '^';
+            text[length++] = byte == 127 ? '?' : (char)(byte + 64);
+        } else {
             text[length++] = (char)byte;
+        }
     }
     text[length] = '\0';
     return length;
@@ -29,7 +31,7 @@ int main(void)
 {
     struct node *head = NULL, *tail = NULL, *current;
     char buffer[4096];
-    char text[4 * sizeof(buffer)];
+    char text[2 * sizeof(buffer)];
     struct termios original, settings;
     int terminal_changed = 0;
     int status = 0;

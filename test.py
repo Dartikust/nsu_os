@@ -83,9 +83,15 @@ for data, expected in [(b"one\ntwo\n.stop\nignored\n", b"one\ntwo\n"),
 controls = b"\x1b[A \x1b[2J \r\b\t\v\x7f\n"
 out, _ = run(4, data=controls + ".\n".encode())
 check(out.split(b"Saved lines:\n", 1)[1] ==
-      b"\\x1b[A \\x1b[2J \\x0d\\x08\\x09\\x0b\\x7f\n",
+      b"^[[A ^[[2J ^M^H^I^K^?\n",
       "Control sequences are stored as visible text")
 check(b"\x1b" not in out, "No active escape characters in output")
+out, _ = run(4, data=b"\x1b[A\x1b[B\x1b[C\x1b[D \x1bOA\x1bOB\x1bOC\x1bOD\n.\n")
+check(out.split(b"Saved lines:\n", 1)[1] == b"^[[A^[[B^[[C^[[D ^[OA^[OB^[OC^[OD\n",
+      "Arrow keys use the same caret notation as terminal echo")
+out, _ = run(4, data=b"\x1b\n\x1b[\n.\n")
+check(out.split(b"Saved lines:\n", 1)[1] == b"^[\n^[[\n",
+      "Incomplete escape sequences stay visible")
 russian = "строка ↑\n".encode()
 out, _ = run(4, data=russian + b".\n")
 check(out.split(b"Saved lines:\n", 1)[1] == russian,
@@ -110,7 +116,7 @@ try:
     process.wait(timeout=3)
     while select.select([master], [], [], 0.1)[0]:
         terminal_output += os.read(master, 4096)
-    check(process.returncode == 0 and b"\\x1b[A" in terminal_output and
+    check(process.returncode == 0 and terminal_output.count(b"^[[A") == 2 and
           b"\x1b" not in terminal_output, "Arrow key stays text during terminal input/output")
     check(termios.tcgetattr(slave) == original, "Original terminal settings restored")
 finally:
