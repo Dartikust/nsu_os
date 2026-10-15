@@ -1,26 +1,24 @@
-#include <sys/types.h>
 #include <stdio.h>
 #include <time.h>
-#include <stdlib.h>
 
-int main()
+int main(void)
 {
-    time_t now;
-    struct tm *sp;
+    time_t now = time(NULL);
+    struct tm *california;
 
-    time(&now);
-
+    if (now == (time_t)-1) {
+        perror("time");
+        return 1;
+    }
     now -= 8 * 60 * 60;
-    
-    sp = gmtime(&now);
-
-    printf("%d/%d/%02d %d:%02d %s\n",
-        sp->tm_mon + 1,
-        sp->tm_mday,
-        sp->tm_year + 1900,
-        sp->tm_hour,
-        sp->tm_min,
-        "Pacific Standard Time, PST");
-
-    exit(0);
+    california = gmtime(&now);
+    if (california == NULL) {
+        fprintf(stderr, "gmtime failed\n");
+        return 1;
+    }
+    printf("%04d-%02d-%02d %02d:%02d:%02d PST (UTC-8)\n",
+           california->tm_year + 1900, california->tm_mon + 1,
+           california->tm_mday, california->tm_hour,
+           california->tm_min, california->tm_sec);
+    return 0;
 }
