@@ -93,11 +93,10 @@ static void on_alarm(int signal_number)
 {
     (void)signal_number;
     expired = 1;
-    /* After timeout there will be no more input in this process. */
     close(STDIN_FILENO);
 }
 
-/* 1: positive number, 0: exactly "0", 2: invalid input, -1: EOF/error, 3: timeout. */
+
 static int read_number(long *number, int timed)
 {
     char input[64], byte, *end;

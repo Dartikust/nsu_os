@@ -33,7 +33,6 @@ int main(int argc, char **argv)
     }
     puts("Before setuid(getuid()):");
     first = check_file(argv[1]);
-    /* Use the invoking user's real UID as the effective UID. */
     if (setuid(getuid()) == -1) {
         perror("setuid");
         return EXIT_FAILURE;
