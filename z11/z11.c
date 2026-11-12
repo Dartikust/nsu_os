@@ -1,5 +1,7 @@
 #define _XOPEN_SOURCE 600
 #include <stdio.h>
+#include <errno.h>
+#include <string.h>
 #include <unistd.h>
 
 extern char **environ;
@@ -29,6 +31,6 @@ int main(int argc, char **argv)
     };
 
     execvpe(argv[1], argv + 1, environment);
-    perror("execvpe");
+    fprintf(stderr, "Error: cannot execute '%s': %s\n", argv[1], strerror(errno));
     return 1;
 }

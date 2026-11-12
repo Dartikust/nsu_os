@@ -1,5 +1,7 @@
 #define _XOPEN_SOURCE 600
 #include <stdio.h>
+#include <errno.h>
+#include <string.h>
 #include <sys/types.h>
 #include <sys/wait.h>
 #include <unistd.h>
@@ -13,29 +15,31 @@ int main(int argc, char **argv)
 
     pid_t child = fork();
     if (child == -1) {
-        perror("fork");
+        perror("Error: fork");
         return 1;
     }
     if (child == 0) {
         execvp(argv[1], argv + 1);
-        perror(argv[1]);
+        fprintf(stderr, "Error: cannot execute '%s': %s\n", argv[1], strerror(errno));
         _exit(127);
     }
 
     int status;
     if (waitpid(child, &status, 0) == -1) {
-        perror("waitpid");
+        perror("Error: waitpid");
         return 1;
     }
 
     if (WIFEXITED(status)) {
         int code = WEXITSTATUS(status);
         printf("Exit code: %d\n", code);
+        if (code != 0)
+            fprintf(stderr, "Error: command '%s' exited with code %d.\n", argv[1], code);
         return code;
     }
     if (WIFSIGNALED(status)) {
         int signal = WTERMSIG(status);
-        printf("Terminated by signal: %d\n", signal);
+        fprintf(stderr, "Error: command '%s' terminated by signal %d.\n", argv[1], signal);
         return 128 + signal;
     }
     return 1;
