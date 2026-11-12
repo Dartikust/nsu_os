@@ -6,6 +6,10 @@
 /z5/z5
 /z6/z6
 /z7/z7
+/z9/z9
+/z9/z9_nowait
+/z10/z10
+/z11/z11
 
 # Build artifacts
 *.o
